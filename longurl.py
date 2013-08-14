@@ -1,10 +1,18 @@
 #!/usr/bin/env python2
-DEFAULT_TIMEOUT=3
-
 import re
 import urlparse
 import httplib
 import socket
+
+
+
+
+class RedirectLoopError(Exception):
+    pass
+
+class UnreachableError(Exception):
+    pass
+
 
 
 def url_parts(input_url):
@@ -34,7 +42,7 @@ def location_header_from(server, page_location, scheme, url, timeout=None, **kw)
         finally:
             c.close()
     except socket.timeout:
-        pass
+        raise UnreachableError
 
 
 def redirects_to_dest(url, timeout=None):
@@ -46,11 +54,22 @@ def redirects_to_dest(url, timeout=None):
 def di_redirs(url, timeout=None):
     while True:
         u = url_parts(url)
-        yield u['url']
+        yield u
         lh = location_header_from(timeout=timeout, **u)
         if lh is None:
             break
         url = lh
+
+
+def err_on_dups(ii, transform_fn=None):
+    seen = set()
+    for i in ii:
+        yield i
+        tr = (transform_fn if (transform_fn is not None) else (lambda a: a))(i)
+        if tr in seen:
+            raise RedirectLoopError
+        else:
+            seen.add((tr))
 
 
 
@@ -68,9 +87,14 @@ if __name__ == '__main__':
     timeout = get_optval(params, '-t', None)
     url = (params[1][0] if (len(params[1]) > 0) else None)
     if url is not None:
-        sr = itertools.islice(di_redirs(url, timeout=timeout), ((resolve_amt + 1) if (resolve_amt > 0) else None))
-        so = (sr if list_all else collections.deque(sr, 1))
-        for i in so: sys.stdout.write('{u}\n'.format(u=i))
+        try:
+            sr = itertools.islice((i['url'] for i in err_on_dups(di_redirs(url, timeout=timeout), transform_fn=lambda a: a['url2use'])), ((resolve_amt + 1) if (resolve_amt > 0) else None))
+            so = (sr if list_all else collections.deque(sr, 1))
+            for i in so: sys.stdout.write('{u}\n'.format(u=i))
+        except RedirectLoopError:
+            exit(2)
+        except UnreachableError:
+            exit(3)
     else:
         sys.stdout.write('''
 Usage: {p} <url> [-a] [-f num] [-t timeout]
@@ -88,10 +112,10 @@ If -t is provided, it should be the amount of seconds to wait for a response fro
 
 EXIT CODES
 Zero on success.
-Non-zero on error; should return a code signifying what error occured.
+Non-zero on error; should return a code signifying what error occured...
+ - 1: command line usage
+ - 2: redirect loop. The last URL provided is the looping one (it was already previously accesses).
+ - 3: unreachable server
 
-KNOWN ISSUES
- - Does not signify error when a server does not respond (e.g. timeout exceeded)
- - Can loop indefinitely if there's a "redirect loop"
         \n'''.format(p=sys.argv[0]))
         exit(1)
