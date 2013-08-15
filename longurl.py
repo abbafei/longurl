@@ -15,17 +15,26 @@ class UnreachableError(Exception):
 
 
 
-def url_parts(input_url):
-    url = (input_url if re.match(r'https?://', input_url) else ''.join(('http://', input_url)))
+def url_parts(url, orig_url=None):
     p = urlparse.urlsplit(url)
     return dict(
-        url = input_url,
         url2use = url,
+        url = (url if (orig_url is None) else orig_url),
         scheme = p[0],
         server = p[1],
         page_location = urlparse.urlunsplit((('',)*2) + p[2:]),
     )
 
+
+def url_fmt(input_url, format_url=''):
+    if re.match(r'https?://', input_url):
+        url = input_url
+    elif re.match(r'/', input_url):
+        url = urlparse.urljoin(format_url, input_url)
+    else:
+        url = ''.join(('http://', input_url))
+    return url
+    
 
 def location_header_from(server, page_location, scheme, url, timeout=None, **kw):
     try:
@@ -37,27 +46,22 @@ def location_header_from(server, page_location, scheme, url, timeout=None, **kw)
             o = (r.getheader('Location', None) 
                 if (400 > r.status >= 300) else None
             )
-            op = (urlparse.urljoin(kw['url2use'], o) if ((o is not None) and o.startswith('/')) else o)
-            return op
+            return o
         finally:
             c.close()
     except socket.timeout:
         raise UnreachableError
 
 
-def redirects_to_dest(url, timeout=None):
-    u = url_parts(url)
-    lh = location_header_from(timeout=timeout, **u)
-    return (u['url'] if (lh is None) else redirects_to_dest(lh))
-
-
 def di_redirs(url, timeout=None):
+    last_url = None
     while True:
-        u = url_parts(url)
+        u = url_parts(url_fmt(url, format_url=last_url), orig_url=url)
         yield u
         lh = location_header_from(timeout=timeout, **u)
         if lh is None:
             break
+        last_url = url
         url = lh
 
 
@@ -81,13 +85,19 @@ if __name__ == '__main__':
 
     get_optval = lambda params, n, default_val=None: (int(params[0][tuple(i[0] for i in params[0]).index(n)][1]) if (n in frozenset(i[0] for i in params[0])) else default_val)
     get_optflag = lambda params, n: (n in frozenset(i[0] for i in params[0]))
+    get_optparam = lambda params, i, default_val=None: (params[1][i] if (len(params[1]) > i) else default_val)
 
-    params = getopt.gnu_getopt(sys.argv[1:], 'af:t:')
-    resolve_amt, timeout, list_all = get_optval(params, '-f', 1), get_optval(params, '-t'), get_optflag(params, '-a')
-    url = (params[1][0] if (len(params[1]) > 0) else None)
+    params = getopt.gnu_getopt(sys.argv[1:], 'af:t:p')
+
+    resolve_amt = get_optval(params, '-f', 1)
+    timeout = get_optval(params, '-t')
+    list_all = get_optflag(params, '-a')
+    show_raw = get_optflag(params, '-p')
+    url = get_optparam(params, 0)
+
     if url is not None:
         try:
-            sr = itertools.islice((i['url'] for i in err_on_dups(di_redirs(url, timeout=timeout), transform_fn=lambda a: a['url2use'])), ((resolve_amt + 1) if (resolve_amt > 0) else None))
+            sr = itertools.islice((i[('url' if show_raw else 'url2use')] for i in err_on_dups(di_redirs(url, timeout=timeout), transform_fn=lambda a: a['url2use'])), ((resolve_amt + 1) if (resolve_amt > 0) else None))
             so = (sr if list_all else collections.deque(sr, 1))
             for i in so: sys.stdout.write('{u}\n'.format(u=i))
         except RedirectLoopError:
@@ -108,6 +118,8 @@ If -a is provided, list all URL which are redirected. Otherwise, just show the l
 If -f is provided, it should be the amount of redirects to follow, or 0 for all redirects (warning: this can go on forever!). If not provided, default is to follow only 1 redirect.
 
 If -t is provided, it should be the amount of seconds to wait for a response from a server before continuing.
+
+If -p is provided, it should show the original "raw" data (i.e. original URI). If not, then the links which are (or would be) accessed are displayed.
 
 EXIT CODES
 Zero on success.
