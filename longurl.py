@@ -79,12 +79,11 @@ if __name__ == '__main__':
     import itertools
     import getopt
 
-    get_optval = lambda params, n, default_value: (int(params[0][tuple(i[0] for i in params[0]).index(n)][1]) if (n in frozenset(i[0] for i in params[0])) else default_value)
+    get_optval = lambda params, n, default_val=None: (int(params[0][tuple(i[0] for i in params[0]).index(n)][1]) if (n in frozenset(i[0] for i in params[0])) else default_val)
+    get_optflag = lambda params, n: (n in frozenset(i[0] for i in params[0]))
 
     params = getopt.gnu_getopt(sys.argv[1:], 'af:t:')
-    list_all = ('-a' in frozenset(i[0] for i in params[0]))
-    resolve_amt = get_optval(params, '-f', 1)
-    timeout = get_optval(params, '-t', None)
+    resolve_amt, timeout, list_all = get_optval(params, '-f', 1), get_optval(params, '-t'), get_optflag(params, '-a')
     url = (params[1][0] if (len(params[1]) > 0) else None)
     if url is not None:
         try:
