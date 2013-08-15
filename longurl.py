@@ -65,6 +65,19 @@ def di_redirs(url, timeout=None):
         url = lh
 
 
+
+def err_iduno(ii, exception):
+    err = {None: None}
+    _val = lambda: err[None]
+    def _gen():
+        try:
+            for i in ii:
+                yield i
+        except exception:
+            err[None] = True
+    return (_gen(), _val)
+
+
 def err_on_dups(ii, transform_fn=None):
     seen = set()
     for i in ii:
@@ -88,7 +101,6 @@ if __name__ == '__main__':
     get_optparam = lambda params, i, default_val=None: (params[1][i] if (len(params[1]) > i) else default_val)
 
     params = getopt.gnu_getopt(sys.argv[1:], 'af:t:p')
-
     resolve_amt = get_optval(params, '-f', 1)
     timeout = get_optval(params, '-t')
     list_all = get_optflag(params, '-a')
@@ -96,14 +108,19 @@ if __name__ == '__main__':
     url = get_optparam(params, 0)
 
     if url is not None:
-        try:
-            sr = itertools.islice((i[('url' if show_raw else 'url2use')] for i in err_on_dups(di_redirs(url, timeout=timeout), transform_fn=lambda a: a['url2use'])), ((resolve_amt + 1) if (resolve_amt > 0) else None))
-            so = (sr if list_all else collections.deque(sr, 1))
-            for i in so: sys.stdout.write('{u}\n'.format(u=i))
-        except RedirectLoopError:
-            exit(2)
-        except UnreachableError:
-            exit(3)
+        urrs = err_iduno(di_redirs(url, timeout=timeout), UnreachableError)
+        rlrs = err_iduno(err_on_dups(urrs[0], transform_fn=lambda a: a['url2use']), RedirectLoopError)
+        sr = itertools.islice((i[('url' if show_raw else 'url2use')] for i in rlrs[0]), ((resolve_amt + 1) if (resolve_amt > 0) else None))
+        so = (sr if list_all else collections.deque(sr, 1))
+        for i in so:
+            sys.stdout.write('{u}\n'.format(u=i))
+        if rlrs[1]():
+            exitcode = 2
+        elif urrs[1]():
+            exitcode = 3
+        else:
+            exitcode = 0
+        exit(exitcode)
     else:
         sys.stdout.write('''
 Usage: {p} <url> [-a] [-f num] [-t timeout]
