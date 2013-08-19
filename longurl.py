@@ -13,6 +13,9 @@ class RedirectLoopError(Exception):
 class UnreachableError(Exception):
     pass
 
+class InvalidRedirectError(Exception):
+    pass
+
 
 
 def url_parts(url, orig_url=None):
@@ -51,6 +54,8 @@ def location_header_from(server, page_location, scheme, url, timeout=None, **kw)
             c.close()
     except socket.timeout:
         raise UnreachableError
+    except socket.gaierror:
+        raise InvalidRedirectError
 
 
 def di_redirs(url, timeout=None):
@@ -65,8 +70,7 @@ def di_redirs(url, timeout=None):
         url = lh
 
 
-
-def err_iduno(ii, exception):
+def err_wraps(ii, exception):
     err = {None: None}
     _val = lambda: err[None]
     def _gen():
@@ -90,6 +94,8 @@ def err_on_dups(ii, transform_fn=None):
 
 
 
+
+
 if __name__ == '__main__':
     import sys
     import collections
@@ -108,8 +114,9 @@ if __name__ == '__main__':
     url = get_optparam(params, 0)
 
     if url is not None:
-        urrs = err_iduno(di_redirs(url, timeout=timeout), UnreachableError)
-        rlrs = err_iduno(err_on_dups(urrs[0], transform_fn=lambda a: a['url2use']), RedirectLoopError)
+        urrs = err_wraps(di_redirs(url, timeout=timeout), UnreachableError)
+        iurs = err_wraps(urrs[0], InvalidRedirectError)
+        rlrs = err_wraps(err_on_dups(iurs[0], transform_fn=lambda a: a['url2use']), RedirectLoopError)
         sr = itertools.islice((i[('url' if show_raw else 'url2use')] for i in rlrs[0]), ((resolve_amt + 1) if (resolve_amt > 0) else None))
         so = (sr if list_all else collections.deque(sr, 1))
         for i in so:
@@ -118,6 +125,8 @@ if __name__ == '__main__':
             exitcode = 2
         elif urrs[1]():
             exitcode = 3
+        elif iurs[1]():
+            exitcode = 4
         else:
             exitcode = 0
         exit(exitcode)
@@ -132,7 +141,8 @@ Should always print one or more URLs (even if there was an error; in such a case
 
 If -a is provided, list all URL which are redirected. Otherwise, just show the last.
 
-If -f is provided, it should be the amount of redirects to follow, or 0 for all redirects (warning: this can go on forever!). If not provided, default is to follow only 1 redirect.
+If -f is provided, it should be the amount of redirects to follow, or 0 for all redirects (warning: this can go on forever!). 
+    If not provided, default is to follow only 1 redirect.
 
 If -t is provided, it should be the amount of seconds to wait for a response from a server before continuing.
 
@@ -144,6 +154,8 @@ Non-zero on error; should return a code signifying what error occured...
  - 1: command line usage
  - 2: redirect loop. The last URL provided is the looping one (it was already previously accesses).
  - 3: unreachable server
+ - 4: invalid redirection. The page redirects to an invalid URI, or similarly is not valid. If a valid URL is shown as the 
+    redirection target location, check if your internet connection is working.
 
         \n'''.format(p=sys.argv[0]))
         exit(1)
