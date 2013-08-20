@@ -151,7 +151,7 @@ Zero on success.
 Non-zero on error; should return a code signifying what error occured...
  - 1: command line usage
  - 2: redirect loop. The last URL provided is the looping one (it was already previously accesses).
- - 3: unreachable server
+ - 3: unreachable server (timeout for example)
  - 4: invalid redirection. The page redirects to an invalid URI, or similarly is not valid. If a valid URL is shown as the 
     redirection target location, check if your internet connection is working.
 
