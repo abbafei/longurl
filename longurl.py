@@ -56,11 +56,10 @@ def location_header_from(server, page_location, scheme, url, timeout=None, **kw)
         raise InvalidRedirectError
 
 
-def di_redirs(input_url, timeout=None):
+def di_redirs(url, timeout=None):
     last_url = None
-    url = url_fmt(input_url, relative_url_format=False)
     while True:
-        u = url_parts(url_fmt(url, format_url=last_url), orig_url=url)
+        u = url_parts(url_fmt(url, format_url=last_url, relative_url_format=(False if (last_url is None) else True)), orig_url=url)
         yield u
         lh = location_header_from(timeout=timeout, **u)
         if lh is None:
