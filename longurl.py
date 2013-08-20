@@ -29,13 +29,11 @@ def url_parts(url, orig_url=None):
     )
 
 
-def url_fmt(input_url, format_url=''):
+def url_fmt(input_url, format_url='', relative_url_format=True):
     if re.match(r'https?://', input_url):
         url = input_url
-    elif re.match(r'/', input_url):
-        url = urlparse.urljoin(format_url, input_url)
     else:
-        url = ''.join(('http://', input_url))
+        url = (urlparse.urljoin(format_url, input_url) if relative_url_format else 'http://{url}'.format(url=input_url))
     return url
     
 
@@ -58,8 +56,9 @@ def location_header_from(server, page_location, scheme, url, timeout=None, **kw)
         raise InvalidRedirectError
 
 
-def di_redirs(url, timeout=None):
+def di_redirs(input_url, timeout=None):
     last_url = None
+    url = url_fmt(input_url, relative_url_format=False)
     while True:
         u = url_parts(url_fmt(url, format_url=last_url), orig_url=url)
         yield u
