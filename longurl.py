@@ -100,13 +100,13 @@ if __name__ == '__main__':
     import itertools
     import getopt
 
-    get_optval = lambda params, n, default_val=None: (int(params[0][tuple(i[0] for i in params[0]).index(n)][1]) if (n in frozenset(i[0] for i in params[0])) else default_val)
+    get_optint = lambda params, n, default_val=None: (int(params[0][tuple(i[0] for i in params[0]).index(n)][1]) if (n in frozenset(i[0] for i in params[0])) else default_val)
     get_optflag = lambda params, n: (n in frozenset(i[0] for i in params[0]))
     get_optparam = lambda params, i, default_val=None: (params[1][i] if (len(params[1]) > i) else default_val)
 
     params = getopt.gnu_getopt(sys.argv[1:], 'af:t:p')
-    resolve_amt = get_optval(params, '-f', 1)
-    timeout = get_optval(params, '-t')
+    resolve_amt = get_optint(params, '-f', 1)
+    timeout = get_optint(params, '-t')
     list_all = get_optflag(params, '-a')
     show_raw = get_optflag(params, '-p')
     url = get_optparam(params, 0)
