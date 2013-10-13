@@ -7,4 +7,8 @@ It can be used, for example to see where a short URL leads; hence the name "long
 Additional help can be garnered by running the program, without providing any command line params.
 
 
+Backward-incompatible changes:
+	2013/10/13 - changed "-f num" opt to "-f"
+
+
 License: BSD

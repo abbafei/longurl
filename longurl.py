@@ -154,7 +154,7 @@ if __name__ == '__main__':
         exit(exitcode)
     else:
         sys.stdout.write('''
-Usage: {p} <url> [-a] [-f num] [-t timeout]
+Usage: {p} <url> [-afhp] [-u user_agent] [-r max_redirect_amount] [-n follow_amount] [-t timeout]
 
 Resolves redirections for a URL.
 
