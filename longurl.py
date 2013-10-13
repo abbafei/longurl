@@ -3,6 +3,7 @@ import re
 import urlparse
 import httplib
 import socket
+import collections
 
 
 
@@ -14,6 +15,9 @@ class UnreachableError(Exception):
     pass
 
 class InvalidRedirectError(Exception):
+    pass
+
+class TooManyRedirects(Exception):
     pass
 
 
@@ -81,15 +85,26 @@ def err_wraps(ii, exception):
     return (_gen(), _val)
 
 
-def err_on_dups(ii, transform_fn=None):
-    seen = set()
+def err_on_dups(ii, max_redirect, transform_fn=None):
+    seen = collections.deque(maxlen=max_redirect)
     for i in ii:
         yield i
         tr = (transform_fn if (transform_fn is not None) else (lambda a: a))(i)
         if tr in seen:
             raise RedirectLoopError
         else:
-            seen.add((tr))
+            seen.append(tr)
+
+
+def err_on_num(ii, max_redirect):
+    redirect_num = 0
+    for i in ii:
+        redirect_num += 1
+        if redirect_num > max_redirect:
+            raise TooManyRedirects
+        else:
+            yield i
+
 
 
 
@@ -105,20 +120,24 @@ if __name__ == '__main__':
     get_optflag = lambda params, n: (n in frozenset(i[0] for i in params[0]))
     get_optparam = lambda params, i, default_val=None: (params[1][i] if (len(params[1]) > i) else default_val)
 
-    params = getopt.gnu_getopt(sys.argv[1:], 'af:ht:pu:')
-    resolve_amt = get_optval(params, '-f', 1, to=int)
+    params = getopt.gnu_getopt(sys.argv[1:], 'afhr:n:t:pu:')
+    resolve_all = get_optflag(params, '-f')
     timeout = get_optval(params, '-t', to=int)
+    resolve_num = get_optval(params, '-n', 1, to=int)
     user_agent = get_optval(params, '-u', None)
+    max_redirect = (get_optval(params, '-r', 20, int) or None) # firefox and chrome current default
     list_all = get_optflag(params, '-a')
     do_help = get_optflag(params, '-h')
     show_raw = get_optflag(params, '-p')
     url = get_optparam(params, 0)
 
     if not (do_help or (url is None)):
+        resolve_amt = (0 if resolve_all else resolve_num)
         urrs = err_wraps(di_redirs(url, timeout=timeout, user_agent=user_agent), UnreachableError)
         iurs = err_wraps(urrs[0], InvalidRedirectError)
-        rlrs = err_wraps(err_on_dups(iurs[0], transform_fn=lambda a: a['url2use']), RedirectLoopError)
-        sr = itertools.islice((i[('url' if show_raw else 'url2use')] for i in rlrs[0]), ((resolve_amt + 1) if (resolve_amt > 0) else None))
+        rlrs = err_wraps(err_on_dups(iurs[0], transform_fn=(lambda a: a['url2use']), max_redirect=max_redirect), RedirectLoopError)
+        rnrs = err_wraps(err_on_num(rlrs[0], max_redirect=max_redirect), TooManyRedirects)
+        sr = itertools.islice((i[('url' if show_raw else 'url2use')] for i in rnrs[0]), ((resolve_amt + 1) if (resolve_amt > 0) else None))
         so = (sr if list_all else collections.deque(sr, 1))
         for i in so:
             sys.stdout.write('{u}\n'.format(u=i))
@@ -128,6 +147,8 @@ if __name__ == '__main__':
             exitcode = 3
         elif iurs[1]():
             exitcode = 4
+        elif rnrs[1]():
+            exitcode = 5
         else:
             exitcode = 0
         exit(exitcode)
@@ -142,8 +163,12 @@ Should always print one or more URLs (even if there was an error; in such a case
 
 If -a is provided, list all URL which are redirected. Otherwise, just show the last.
 
-If -f is provided, it should be the amount of redirects to follow, or 0 for all redirects (warning: this can go on forever!). 
-    If not provided, default is to follow only 1 redirect.
+If -n is provided, it should be the amount of redirects to follow, or 0 for all redirects.
+If -f is provided, follow all redirects.
+    Default is to follow only 1 redirect.
+    Warning: following all redirects can loop infinitely!
+
+If -r is provided, it should be the maximum amount of redirects to follow, or 0 for unlimited.
 
 If -h is provided, this message is displayed.
 
@@ -157,10 +182,11 @@ EXIT CODES
 Zero on success.
 Non-zero on error; should return a code signifying what error occured...
  - 1: command line usage
- - 2: redirect loop. The last URL provided is the looping one (it was already previously accesses).
+ - 2: redirect loop. The last URL provided is the looping one (it was already previously accessed).
  - 3: unreachable server (timeout for example)
  - 4: invalid redirection. The page redirects to an invalid URI, or similarly is not valid. If a valid URL is shown as the 
     redirection target location, check if your internet connection is working.
+ - 5: Too many redirects. The maximum redirect amount has been exceeded.
 
         \n'''.format(p=sys.argv[0]))
         exit(1)
