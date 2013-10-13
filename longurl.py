@@ -37,12 +37,12 @@ def url_fmt(input_url, format_url='', relative_url_format=True):
     return url
     
 
-def location_header_from(server, page_location, scheme, url, timeout=None, **kw):
+def location_header_from(server, page_location, scheme, url, timeout=None, http_headers=None, **kw):
     try:
         cer = (httplib.HTTPSConnection  if scheme.startswith('https') else httplib.HTTPConnection)
         c = (cer(server) if (timeout is None) else cer(server, timeout=timeout))
         try:
-            c.request('GET', page_location)
+            c.request('GET', page_location, headers=({} if (http_headers is None) else http_headers))
             r = c.getresponse()
             o = (r.getheader('Location', None) 
                 if (400 > r.status >= 300) else None
@@ -56,12 +56,13 @@ def location_header_from(server, page_location, scheme, url, timeout=None, **kw)
         raise InvalidRedirectError
 
 
-def di_redirs(url, timeout=None):
+def di_redirs(url, timeout=None, user_agent=None):
+    http_headers = ({} if (user_agent is None) else {'User-Agent': user_agent})
     last_url = None
     while True:
         u = url_parts(url_fmt(url, format_url=last_url, relative_url_format=(False if (last_url is None) else True)), orig_url=url)
         yield u
-        lh = location_header_from(timeout=timeout, **u)
+        lh = location_header_from(timeout=timeout, http_headers=http_headers, **u)
         if lh is None:
             break
         last_url = url
@@ -104,15 +105,16 @@ if __name__ == '__main__':
     get_optflag = lambda params, n: (n in frozenset(i[0] for i in params[0]))
     get_optparam = lambda params, i, default_val=None: (params[1][i] if (len(params[1]) > i) else default_val)
 
-    params = getopt.gnu_getopt(sys.argv[1:], 'af:t:p')
+    params = getopt.gnu_getopt(sys.argv[1:], 'af:t:pu:')
     resolve_amt = get_optval(params, '-f', 1, to=int)
     timeout = get_optval(params, '-t', to=int)
+    user_agent = get_optval(params, '-u', None)
     list_all = get_optflag(params, '-a')
     show_raw = get_optflag(params, '-p')
     url = get_optparam(params, 0)
 
     if url is not None:
-        urrs = err_wraps(di_redirs(url, timeout=timeout), UnreachableError)
+        urrs = err_wraps(di_redirs(url, timeout=timeout, user_agent=user_agent), UnreachableError)
         iurs = err_wraps(urrs[0], InvalidRedirectError)
         rlrs = err_wraps(err_on_dups(iurs[0], transform_fn=lambda a: a['url2use']), RedirectLoopError)
         sr = itertools.islice((i[('url' if show_raw else 'url2use')] for i in rlrs[0]), ((resolve_amt + 1) if (resolve_amt > 0) else None))
@@ -145,6 +147,8 @@ If -f is provided, it should be the amount of redirects to follow, or 0 for all 
 If -t is provided, it should be the amount of seconds to wait for a response from a server before continuing.
 
 If -p is provided, it should show the original "raw" data (i.e. original URI). If not, then the links which are (or would be) accessed are displayed.
+
+If -u is provided, it should be a string to use for the "User-Agent" HTTP request header.
 
 EXIT CODES
 Zero on success.
