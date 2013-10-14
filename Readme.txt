@@ -2,7 +2,9 @@ B"H.
 
 This utility follows HTTP redirects and tells you to where they go.
 
+
 It can be used, for example to see where a short URL leads; hence the name "longurl".
+It is similar to the Unix `readlink` command, but for URLs instead of files.
 
 Additional help can be garnered by running the program, without providing any command line params.
 
