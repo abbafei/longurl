@@ -60,8 +60,7 @@ def location_header_from(server, page_location, scheme, url, timeout=None, http_
         raise InvalidRedirectError
 
 
-def di_redirs(url, timeout=None, user_agent=None):
-    http_headers = ({} if (user_agent is None) else {'User-Agent': user_agent})
+def di_redirs(url, timeout=None, http_headers=()):
     last_url = None
     while True:
         u = url_parts(url_fmt(url, format_url=last_url, relative_url_format=(False if (last_url is None) else True)), orig_url=url)
@@ -74,6 +73,7 @@ def di_redirs(url, timeout=None, user_agent=None):
 
 
 def err_wraps(ii, exception):
+    '''iterates over an iterable, checking for an error <exception>. returns a tuple with the iterator, and a callable which returns a boolean -- if an <exception> error is raised while iterating, the boolean is true, otherwise it is not.'''
     err = {None: None}
     _val = lambda: err[None]
     def _gen():
@@ -115,17 +115,22 @@ if __name__ == '__main__':
     import collections
     import itertools
     import getopt
+    import email
 
     get_optval = lambda params, n, default_val=None, to=(lambda val: val): (to(params[0][tuple(i[0] for i in params[0]).index(n)][1]) if (n in frozenset(i[0] for i in params[0])) else default_val)
+    get_optlist = lambda params, n: tuple(i[1] for i in params[0] if (i[0] == n))
     get_optflag = lambda params, n: (n in frozenset(i[0] for i in params[0]))
     get_optparam = lambda params, i, default_val=None: (params[1][i] if (len(params[1]) > i) else default_val)
 
-    params = getopt.gnu_getopt(sys.argv[1:], 'afhr:n:t:pu:')
+    max_redirect_default = 20 # firefox and chrome current default
+
+    params = getopt.gnu_getopt(sys.argv[1:], 'afhH:r:n:t:pu:')
     resolve_all = get_optflag(params, '-f')
     timeout = get_optval(params, '-t', to=int)
     resolve_num = get_optval(params, '-n', 1, to=int)
+    addl_headers = get_optlist(params, '-H')
     user_agent = get_optval(params, '-u', None)
-    max_redirect = (get_optval(params, '-r', 20, int) or None) # firefox and chrome current default
+    max_redirect = (get_optval(params, '-r', max_redirect_default, int) or None)
     list_all = get_optflag(params, '-a')
     do_help = get_optflag(params, '-h')
     show_raw = get_optflag(params, '-p')
@@ -133,7 +138,9 @@ if __name__ == '__main__':
 
     if not (do_help or (url is None)):
         resolve_amt = (0 if resolve_all else resolve_num)
-        urrs = err_wraps(di_redirs(url, timeout=timeout, user_agent=user_agent), UnreachableError)
+        http_headers_seq = (addl_headers + (() if (user_agent is None) else ('User-Agent: {0}'.format(user_agent),)))
+        http_headers = dict(email.message_from_string('\r\n'.join(http_headers_seq)))
+        urrs = err_wraps(di_redirs(url, timeout=timeout, http_headers=http_headers), UnreachableError)
         iurs = err_wraps(urrs[0], InvalidRedirectError)
         rlrs = err_wraps(err_on_dups(iurs[0], transform_fn=(lambda a: a['url2use']), max_redirect=max_redirect), RedirectLoopError)
         rnrs = err_wraps(err_on_num(rlrs[0], max_redirect=max_redirect), TooManyRedirects)
@@ -154,29 +161,34 @@ if __name__ == '__main__':
         exit(exitcode)
     else:
         sys.stdout.write('''
-Usage: {p} <url> [-afhp] [-u user_agent] [-r max_redirect_amount] [-n follow_amount] [-t timeout]
+Usage: {p} <url> [-afhp] [-u user_agent] [-H http_header [-H http_header]...] [-r max_redirect_amount] [-n follow_amount] [-t timeout]
 
 Resolves redirections for a URL.
 
 INFO
 Should always print one or more URLs (even if there was an error; in such a case a non-zero exit code should also be returned.).
 
-If -a is provided, list all URL which are redirected. Otherwise, just show the last.
+If -h is provided, this message is displayed.
+
+If -a is provided, list all the intermediate URIs which we are redirected through. Otherwise, just show the last.
 
 If -n is provided, it should be the amount of redirects to follow, or 0 for all redirects.
-If -f is provided, follow all redirects.
+If -f is provided, follow all redirects (equivalent to -n 0).
     Default is to follow only 1 redirect.
-    Warning: following all redirects can loop infinitely!
+    Warning: following all redirects could loop infinitely when maximum redirect amount is also unlimited!
 
-If -r is provided, it should be the maximum amount of redirects to follow, or 0 for unlimited.
-
-If -h is provided, this message is displayed.
+If -r is provided, it should be the maximum amount of redirects to follow, or 0 for unlimited (default {max_redirect_default}). If this amount is
+  exceeded without reaching a non-redirecting URI, a non-zero exit code is returned.
 
 If -t is provided, it should be the amount of seconds to wait for a response from a server before continuing.
 
-If -p is provided, it should show the original "raw" data (i.e. original URI). If not, then the links which are (or would be) accessed are displayed.
+If -p is provided, it should show the original "raw" URI for each redirection (i.e. raw "Location"
+  header value). If not, then the links which are (or would be) accessed to reach that URI are displayed.
 
 If -u is provided, it should be a string to use for the "User-Agent" HTTP request header.
+
+If -H is provided, it should be an HTTP header to add to the requests,
+  for example "Cookie: yum". Use -H more than once to send more than one header.
 
 EXIT CODES
 Zero on success.
@@ -184,9 +196,9 @@ Non-zero on error; should return a code signifying what error occured...
  - 1: command line usage
  - 2: redirect loop. The last URL provided is the looping one (it was already previously accessed).
  - 3: unreachable server (timeout for example)
- - 4: invalid redirection. The page redirects to an invalid URI, or similarly is not valid. If a valid URL is shown as the 
-    redirection target location, check if your internet connection is working.
+ - 4: invalid redirection. The page redirects to an invalid URI, or is not valid for a similar reason. If a valid
+      URL is shown as the redirection target location, check if your internet connection is working.
  - 5: Too many redirects. The maximum redirect amount has been exceeded.
 
-        \n'''.format(p=sys.argv[0]))
+        \n'''.format(p=sys.argv[0], max_redirect_default=max_redirect_default))
         exit(1)
